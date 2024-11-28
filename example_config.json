@@ -1,0 +1,36 @@
+{
+  "signals_manifest": [
+    {
+      "module": "lib.signals.momentum",
+      "class_name": "MomentumSignal"
+    },
+    {
+      "module": "lib.signals.reversion",
+      "class_name": "ReversionSignal"
+    },
+    {
+      "module": "lib.signals.volatility",
+      "class_name": "VolatilitySignal"
+    }
+  ],
+  "signals": [
+    {
+      "name": "MomentumSignal",
+      "output_name": "momentum_60",
+      "params": {"window": 60},
+      "dependencies": []
+    },
+    {
+      "name": "ReversionSignal",
+      "output_name": "reversion_5_60",
+      "params": {"short_window": 5, "long_window": 60},
+      "dependencies": ["momentum_60"]
+    },
+    {
+      "name": "VolatilitySignal",
+      "output_name": "volatility_30",
+      "params": {"window": 30},
+      "dependencies": ["reversion_5_60"]
+    }
+  ]
+}
