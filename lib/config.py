@@ -1,5 +1,18 @@
+from enum import Enum
 from pydantic import BaseModel, Field, validator
-from typing import List, Dict
+from typing import List, Dict, Optional
+
+class DaskScheduler(str, Enum):
+  Threads = "threads"
+  Processes = "processes"
+  Distributed = "distributed"
+
+
+class DaskConfig(BaseModel):
+  enabled: bool = False # Whether to use Dask
+  scheduler: DaskScheduler = DaskScheduler.Threads # Dask scheduler
+  num_workers: Optional[int] = None # Number of workers (only applicable for "threads" or "processes")
+
 
 class SignalDefinition(BaseModel):
   module: str # Path to the Python module containing the signal
@@ -19,6 +32,7 @@ class SignalConfig(BaseModel):
   
 
 class PipelineConfig(BaseModel):
+  dask: DaskConfig = DaskConfig()
   signals_manifest: List[SignalDefinition] # List of signal defintions
   signals: List[SignalConfig] # List of signal configuration
   

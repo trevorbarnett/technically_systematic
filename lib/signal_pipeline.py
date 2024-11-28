@@ -1,6 +1,8 @@
 from graphlib import TopologicalSorter
+from dask import delayed, compute
+from dask.distributed import Client, LocalCluster
 from lib.signal_loader import load_and_register_signals
-from lib.config import PipelineConfig
+from lib.config import PipelineConfig, DaskScheduler
 import pandas as pd
 
 class SignalPipeline:
@@ -13,7 +15,8 @@ class SignalPipeline:
     self.config = config
     self.sorted_signals = self._sort_signals_by_dependencies()
     self.signal_classes = load_and_register_signals(config.signals_manifest)
-  
+    self.dask_client = self._setup_dask() if config.dask.enabled else None
+
   def _sort_signals_by_dependencies(self):
     dag = TopologicalSorter()
     for signal in self.config.signals:
@@ -21,8 +24,26 @@ class SignalPipeline:
   
     return list(dag.static_order()) 
   
+  def _setup_dask(self):
+    """Setup Dask client based on configuration
+    """
+    if self.config.dask.scheduler == DaskScheduler.Threads:
+      # Local multithreaded scheduler
+      return Client(processes=False, threads_per_worker=self.config.dask.num_workers or 4)
+    elif self.config.dask.scheduler == DaskScheduler.Processes:
+      # Local multiprocessing scheduler
+      return Client(processes=True, n_workers = self.config.dask.num_workers or 4 )
+    elif self.config.dask.scheduler == DaskScheduler.Distributed:
+      # Distributed cluster setup
+      cluster = LocalCluster(n_workers=self.config.dask.num_workers or 4) # TODO: Enable more than LocalCluster
+      return Client(cluster)
+    else:
+      raise ValueError(f"Unssuprted Dask scheduler: {self.config.dask.scheduler}")
+    
+
   def run(self, data: pd.DataFrame) -> pd.DataFrame:
     results = {}
+    tasks = {}
     for signal_name in self.sorted_signals:
       # Find the corresponding signal config
       signal_config = next(s for s in self.config.signals if s.output_name == signal_name)
@@ -31,6 +52,21 @@ class SignalPipeline:
       
       # Get dependencies
       dependencies = {dep: results[dep] for dep in signal_config.dependencies}
-      result = generator.generate(data, name=signal_config.output_name, **signal_config.params, **dependencies)
-      results[signal_name] = result
+      
+      # Create dask task
+      task = delayed(generator.generate)(
+        data, name=signal_config.output_name, **signal_config.params, **dependencies
+      )
+      
+      tasks[signal_name] = task
+
+      if not self.config.dask.enabled:
+        results[signal_name] = task.compute()
+      else:
+        results[signal_name] = task
+    if self.config.dask.enabled:
+      # Compute all tasks in parallel
+      computed_results = compute(**results.values())
+      results = dict(zip(results.keys(), computed_results))
+
     return results

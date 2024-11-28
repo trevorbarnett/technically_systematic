@@ -1,4 +1,9 @@
 {
+  "dask": {
+    "enaled": true,
+    "scheduler": "threads",
+    "num_workers": 4
+  },
   "signals_manifest": [
     {
       "module": "lib.signals.momentum",
