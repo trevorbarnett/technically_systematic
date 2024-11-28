@@ -1,26 +1,23 @@
 from abc import ABC, abstractmethod
+from typing import Dict
 import pandas as pd
 
 class SignalGenerator(ABC):
 
-  def generate(self, data: pd.DataFrame, name: str, **kwargs) -> pd.DataFrame:
-    if 'asset' not in data.columns:
-      raise ValueError("Input data must include 'asset' column")
-    result = data.groupby('asset').apply(
-      lambda group: self._compute(group, name=name, **kwargs)
-    )
-    return result.reset_index(drop=True)
-
   @abstractmethod
-  def _compute(self, data:pd.DataFrame, name: str,  **kwargs) -> pd.DataFrame:
-    """Compute the signal based on the input data.
+  def generate(self, data: pd.DataFrame, name: str, **kwargs) -> pd.DataFrame:
+      """Generate the signal based on the input data."""
+      pass
+  def partition(self, data: pd.DataFrame, **kwargs) -> Dict[str, pd.DataFrame]:
+    """Partition the data for processing
 
     Args:
-        data (pd.DataFrame): Input market data 
-        name (str): Custom name for the signal column
-        **kwargs: Additional parameters for the signal computation
+        data (pd.DataFrame): Input data
+        **kwargs: Additional parameters for partitioning
 
     Returns:
-        pd.DataFrame: Dataframe with the generated signals
+        Dict[str, pd.DataFrame]: Partitioned data where keys are partition names (e.g. asset names or other groupings).
     """
-    pass
+
+    # Default partitioning: per asset
+    return {asset: group for asset, group in data.groupby("asset")}

@@ -1,5 +1,6 @@
 from graphlib import TopologicalSorter
 from dask import delayed, compute
+from dask.delayed import Delayed
 from dask.distributed import Client, LocalCluster
 from lib.signal_loader import load_and_register_signals
 from lib.config import PipelineConfig, DaskScheduler
@@ -50,23 +51,35 @@ class SignalPipeline:
       signal_class = self.signal_classes[signal_config.name]
       generator = signal_class()
       
-      # Get dependencies
-      dependencies = {dep: results[dep] for dep in signal_config.dependencies}
-      
-      # Create dask task
-      task = delayed(generator.generate)(
-        data, name=signal_config.output_name, **signal_config.params, **dependencies
-      )
-      
-      tasks[signal_name] = task
+      # Partition data as required by the signal
+      partitions = generator.partition(data, **signal_config.params)
 
-      if not self.config.dask.enabled:
-        results[signal_name] = task.compute()
-      else:
-        results[signal_name] = task
+      for partition_name, partition_data in partitions.items():
+        dependencies = {}
+        for dep_name in signal_config.dependencies:
+          dep_key = (dep_name, partition_name)
+          dep_result = results.get(dep_key)
+          if isinstance(dep_result, Delayed):
+            dependencies[dep_name] = dep_result.compute()
+          else:
+            dependencies[dep_name] = dep_result
+  
+        for dep_name, dep_data in dependencies.items():
+          if dep_data is not None:
+            partition_data = partition_data.merge(dep_data, on=["datetime", "asset"], how="left")
+        # Create dask task
+        task = delayed(generator.generate)(
+          partition_data, name=signal_config.output_name, **signal_config.params
+        )
+        
+        tasks[(signal_name, partition_name)] = task
+      results.update(tasks)
+
     if self.config.dask.enabled:
       # Compute all tasks in parallel
-      computed_results = compute(**results.values())
-      results = dict(zip(results.keys(), computed_results))
+      computed_tasks = compute(**tasks.values())
+      results = dict(zip(tasks.keys(), computed_tasks))
+    else:
+      results = {key: task.compute() for key, task in tasks.items()}
 
     return results

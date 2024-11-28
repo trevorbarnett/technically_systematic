@@ -13,9 +13,9 @@ config = PipelineConfig(**config_data)
 
 # Example multi-asset data
 data = pd.DataFrame({
-    'asset': ['AAPL', 'AAPL', 'AAPL', 'MSFT', 'MSFT', 'MSFT'],
-    'price': [150, 151, 152, 300, 305, 310],
-    'datetime': pd.date_range('2024-01-01', periods=6, freq='T')
+    'asset': ['AAPL', 'AAPL', 'AAPL', 'MSFT', 'MSFT', 'MSFT','GOOG','GOOG','GOOG'],
+    'price': [150, 151, 152, 300, 305, 310, 650, 625, 635],
+    'datetime': pd.date_range('2024-01-01', periods=9, freq='min')
 })
 
 # Run the pipeline
@@ -23,3 +23,4 @@ pipeline = SignalPipeline(config)
 results = pipeline.run(data)
 
 print(results)
+print(results.columns)

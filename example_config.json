@@ -16,6 +16,10 @@
     {
       "module": "lib.signals.volatility",
       "class_name": "VolatilitySignal"
+    },
+    {
+      "module": "lib.signals.covariance",
+      "class_name": "CovarianceSignal"
     }
   ],
   "signals": [
@@ -35,7 +39,13 @@
       "name": "VolatilitySignal",
       "output_name": "volatility_30",
       "params": {"window": 30},
-      "dependencies": ["reversion_5_60"]
+      "dependencies": ["momentum_60"]
+    },
+    {
+      "name": "CovarianceSignal",
+      "output_name": "cov_matrix_30",
+      "params": {"window": 30},
+      "dependencies": []
     }
   ]
 }
