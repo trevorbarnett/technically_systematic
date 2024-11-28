@@ -18,6 +18,11 @@ class SignalDefinition(BaseModel):
   module: str # Path to the Python module containing the signal
   class_name: str # Class name of the signal generator
 
+class CacheConfig(BaseModel):
+  module: str
+  classname: str
+  params: Dict[str, str] = Field(default_factory=dict)
+
 class SignalConfig(BaseModel):
   name: str # Signal name (e.g. 'momentum', 'reversion')
   output_name: str # Custon name for the output signal
@@ -33,6 +38,7 @@ class SignalConfig(BaseModel):
 
 class PipelineConfig(BaseModel):
   dask: DaskConfig = DaskConfig()
+  cache: Optional[CacheConfig] = None
   signals_manifest: List[SignalDefinition] # List of signal defintions
   signals: List[SignalConfig] # List of signal configuration
-  
+  output_series: List[str] # List of seires to output

@@ -1,4 +1,11 @@
 {
+  "cache": {
+    "module": "lib.cache.local",
+    "classname": "LocalCache",
+    "params": {
+      "cache_dir": "temp_cache"
+    }
+  },
   "dask": {
     "enaled": true,
     "scheduler": "threads",
@@ -47,5 +54,9 @@
       "params": {"window": 30},
       "dependencies": []
     }
+  ],
+  "output_series": [
+    "momentum_60",
+    "reversion_5_60"
   ]
 }
