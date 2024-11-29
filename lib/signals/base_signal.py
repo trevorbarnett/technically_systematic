@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, List
 import pandas as pd
 import hashlib
 
@@ -14,8 +14,23 @@ class SignalGenerator(ABC):
     self.cache = cache
   @abstractmethod
   def generate(self, data: pd.DataFrame, name: str, **kwargs) -> pd.DataFrame:
-      """Generate the signal based on the input data."""
-      pass
+    """Generate the signal based on the input data."""
+    pass
+  def extract_columns(self, data: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
+    """Extract the required columns
+
+    Args:
+        data (pd.DataFrame): The input data.
+        columns (List[str]): List of required column names
+
+    Returns:
+        pd.DataFrame: A DataFrame with only the requested columns
+    """
+    missing_cols = [col for col in columns if col not in data.columns]
+    if missing_cols:
+      raise ValueError(f"Missing required columns: {missing_cols}")
+    return data.loc[:,columns]
+
   def partition(self, data: pd.DataFrame, **kwargs) -> Dict[str, pd.DataFrame]:
     """Partition the data for processing
 

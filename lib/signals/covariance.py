@@ -10,12 +10,14 @@ class CovarianceSignal(SignalGenerator):
 
   def generate(self, data: pd.DataFrame, name: str, **kwargs) -> pd.DataFrame:
     """Compute a rolling covariance matrix for the universe."""
+    column = kwargs.get("column", "close")
     window = int(kwargs.get("window", 30))
-    cov_asset_col = f"cov_asset_{window}"
-    cov_value_col = f"cov_{window}"
+    cov_asset_col = f"cov_asset_{column}_{window}"
+    cov_value_col = f"cov_{column}_{window}"
 
+    data = self.extract_columns(data,["datetime","asset",column])
 
-    cov_matrix = data.pivot(index="datetime", columns="asset", values="price").rolling(window=window).cov()
+    cov_matrix = data.pivot(index="datetime", columns="asset", values=column).rolling(window=window).cov()
     cov_matrix = cov_matrix.rename_axis(index={"asset": cov_asset_col})
 
     cov_matrix = (

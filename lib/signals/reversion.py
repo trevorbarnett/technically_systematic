@@ -23,13 +23,16 @@ class ReversionSignal(SignalGenerator):
     if momentum is not None:
       # Merge momentum signal into the data if it exists
       data = data.merge(momentum, on=["datetime", "asset"], how="left")
-
+    
+    column = kwargs.get("column", "close")
     # Compute the reversion signal
     short_window = kwargs.get("short_window", 5)
     long_window = kwargs.get("long_window", 60)
 
-    short_ma = data['price'].rolling(window=int(short_window)).mean()
-    long_ma = data['price'].rolling(window=int(long_window)).mean()
-    data[name] = short_ma - long_ma
+    data = self.extract_columns(data,["datetime", "asset", column])
 
-    return data[['asset', 'datetime', name]]
+    short_ma = data[column].rolling(window=int(short_window)).mean()
+    long_ma = data[column].rolling(window=int(long_window)).mean()
+    data.loc[:,name] = short_ma - long_ma
+
+    return data.loc[:,['asset', 'datetime', name]]

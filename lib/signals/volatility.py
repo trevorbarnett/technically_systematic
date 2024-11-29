@@ -8,23 +8,20 @@ class VolatilitySignal(SignalGenerator):
     Compute volatility signal for a single asset group.
     
     Args:
-        data (pd.DataFrame): Data for a single asset group.
-        name (str): Output column name for the signal.
-        **kwargs: Additional parameters for signal computation and dependencies.
-            - window (int): Lookback window for rolling standard deviation.
-            - dependency_signals (dict): Upstream dependency results (optional).
-    
+        data (pd.DataFrame): Input data.
+        name (str): Name of the output column.
+        **kwargs: Additional parameters, including:
+            - high_column: The high price column (default: 'high').
+            - low_column: The low price column (default: 'low').
+            - window: The rolling window size.
+
     Returns:
         pd.DataFrame: DataFrame containing the volatility signal.
     """
-    # Use upstream dependencies if provided
-    dependencies = kwargs.get("dependency_signals", {})
-    for dep_name, dep_data in dependencies.items():
-        # Merge each dependency into the data
-        data = data.merge(dep_data, on=["datetime", "asset"], how="left")
+    high_column = kwargs.get("high_column", "high")
+    low_column = kwargs.get("low_column", "low")
+    window = int(kwargs.get("window", 30))
 
-    # Compute the rolling standard deviation (volatility)
-    window = kwargs.get("window", 30)
-    data[name] = data['price'].pct_change().rolling(window=int(window)).std()
-
-    return data[['asset', 'datetime', name]]
+    data = self.extract_columns(data, ["datetime", "asset", high_column, low_column])
+    data.loc[:,name] = (data[high_column] - data[low_column]).rolling(window=window).mean()
+    return data.loc[:,['datetime', 'asset', name]]
