@@ -55,6 +55,7 @@ class DataCalculation(ABC):
 
     # Generate the signal and cache the result
     result = self.calculate(data, name, **kwargs)
+    cache_path = None
     if self.cache:
-      self.cache.save(cache_key, result)
-    return result
+      cache_path = self.cache.save(cache_key, result)
+    return result, cache_path

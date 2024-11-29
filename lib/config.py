@@ -37,7 +37,11 @@ class DataLoaderConfig(BaseModel):
   association: Optional[DataAssociation] = None
   params: Dict[str,str] = {}
 
-
+class OutputConfig(BaseModel):
+  module: str
+  class_name: str
+  data_series: List[str]
+  params: Dict[str,str] = {}
 
 class DataCalculationDefinition(BaseModel):
   module: str # Path to the Python module containing the signal
@@ -62,9 +66,11 @@ class DataCalculationConfig(BaseModel):
   
 
 class PipelineConfig(BaseModel):
+  pipeline_name: str
+  manifest_dir: str
   dask: DaskConfig = DaskConfig()
   cache: Optional[CacheConfig] = None
   data_loaders: Dict[str, DataLoaderConfig]
   calculations_manifest: List[DataCalculationDefinition] # List of signal defintions
   calculations: List[DataCalculationConfig] # List of signal configuration
-  output_series: List[str] # List of seires to output
+  outputs: List[OutputConfig] = []

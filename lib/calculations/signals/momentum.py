@@ -18,7 +18,7 @@ class MomentumSignal(DataCalculation):
         pd.DataFrame: DataFrame with the momentum signal.
     """
     column = kwargs.get("column", "close")
-    window = kwargs.get("window", 60)
+    window = int(kwargs.get("window", 60))
 
     data = self.extract_columns(data,["datetime", "asset", column])
 

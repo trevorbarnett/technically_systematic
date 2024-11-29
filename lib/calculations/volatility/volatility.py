@@ -18,7 +18,7 @@ class Volatility(DataCalculation):
             pd.DataFrame: DataFrame with the rolling volatility.
     """
     column = kwargs.get("column", "close")
-    window = kwargs.get("window", 20)
+    window = int(kwargs.get("window", 20))
 
     data = self.extract_columns(data, ["datetime", "asset", column])
 
