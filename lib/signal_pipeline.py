@@ -7,6 +7,7 @@ from dask.distributed import Client, LocalCluster
 from lib.signal_loader import load_and_register_signals
 from lib.config import PipelineConfig, DaskScheduler, CacheConfig
 from lib.cache.base_cache import BaseCache
+from lib.data_loader import create_loader
 import pandas as pd
 
 class SignalPipeline:
@@ -18,6 +19,7 @@ class SignalPipeline:
     """
     self.config = config
     self.cache = self._initialize_cache(config.cache)
+    self.data_loaders = self._initialize_loaders(config.data_loaders)
     self.sorted_signals = self._sort_signals_by_dependencies()
     self.signal_classes = load_and_register_signals(config.signals_manifest)
     self.dask_client = self._setup_dask() if config.dask.enabled else None
@@ -30,6 +32,20 @@ class SignalPipeline:
     cache_module = importlib.import_module(cache_module_name)
     cache_class = getattr(cache_module, cache_classname)
     return cache_class(**cache_config.params)
+  def _initialize_loaders(self, loaders_config: dict):
+    """
+    Initialize all data loaders.
+
+    Args:
+        loaders_config (dict): Configuration for all data loaders.
+
+    Returns:
+        dict: A dictionary of {dataset_name: DataLoader} instances.
+    """
+    return {
+      name: create_loader(loader_config)
+      for name, loader_config in loaders_config.items()
+    }
 
   def _sort_signals_by_dependencies(self):
     dag = TopologicalSorter()
@@ -55,9 +71,30 @@ class SignalPipeline:
       raise ValueError(f"Unssuprted Dask scheduler: {self.config.dask.scheduler}")
     
 
-  def run(self, data: pd.DataFrame) -> pd.DataFrame:
+  def load_data(self) -> pd.DataFrame:
+    """
+    Load and integrate datasets with associations.
+
+    Returns:
+        pd.DataFrame: Integrated DataFrame with all datasets merged.
+    """
+    # Load primary dataset
+    primary_data = self.data_loaders["price_series"].load_data()
+
+    # Process and associate secondary datasets
+    for name, loader in self.data_loaders.items():
+      if name == "price_series":
+          continue  # Skip the primary dataset
+
+      secondary_data = loader.load_data()
+      primary_data = loader.associate(primary_data, secondary_data)
+
+    return primary_data
+  def run(self) -> pd.DataFrame:
     results = {}
-    tasks = {}
+
+    data = self.load_data()
+
     for signal_name in self.sorted_signals:
       # Find the corresponding signal config
       signal_config = next(s for s in self.config.signals if s.output_name == signal_name)

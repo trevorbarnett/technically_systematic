@@ -13,6 +13,31 @@ class DaskConfig(BaseModel):
   scheduler: DaskScheduler = DaskScheduler.Threads # Dask scheduler
   num_workers: Optional[int] = None # Number of workers (only applicable for "threads" or "processes")
 
+class DataJoinType(str, Enum):
+  Left = "left"
+  Right = "right"
+  Inner = "inner"
+  Outter = "outter"
+
+class DataFillType(str, Enum):
+  ForwardFill = "ffill"
+  BackwardFill = "bfill"
+
+class DataAssociation(BaseModel):
+  on: List[str]
+  how: DataJoinType
+  fill_method: Optional[DataFillType] = None
+
+class DataLoaderConfig(BaseModel):
+  module: str
+  class_name: str
+  datetime_column: str = "datetime"
+  required_columns: List[str] = ["datetime"]
+  datetime_granularity: Optional[str] = None
+  association: Optional[DataAssociation] = None
+  params: Dict[str,str] = {}
+
+
 
 class SignalDefinition(BaseModel):
   module: str # Path to the Python module containing the signal
@@ -39,6 +64,7 @@ class SignalConfig(BaseModel):
 class PipelineConfig(BaseModel):
   dask: DaskConfig = DaskConfig()
   cache: Optional[CacheConfig] = None
+  data_loaders: Dict[str, DataLoaderConfig]
   signals_manifest: List[SignalDefinition] # List of signal defintions
   signals: List[SignalConfig] # List of signal configuration
   output_series: List[str] # List of seires to output

@@ -3,7 +3,19 @@
     "module": "lib.cache.local",
     "classname": "LocalCache",
     "params": {
-      "cache_dir": "temp_cache"
+      "cache_dir": "test/cache"
+    }
+  },
+  "data_loaders": {
+    "price_series": {
+      "module": "lib.data.parquet_loader",
+      "class_name": "ParquetLoader",
+      "datetime_column": "datetime",
+      "required_columns": ["datetime","asset","open","high","low","close","volume"],
+      "datetime_granularity": "1 minute",
+      "params": {
+        "file_path": "test/data/prices.parq"
+      }
     }
   },
   "dask": {
