@@ -39,7 +39,7 @@ class DataLoaderConfig(BaseModel):
 
 
 
-class SignalDefinition(BaseModel):
+class DataCalculationDefinition(BaseModel):
   module: str # Path to the Python module containing the signal
   class_name: str # Class name of the signal generator
 
@@ -48,8 +48,8 @@ class CacheConfig(BaseModel):
   classname: str
   params: Dict[str, str] = Field(default_factory=dict)
 
-class SignalConfig(BaseModel):
-  name: str # Signal name (e.g. 'momentum', 'reversion')
+class DataCalculationConfig(BaseModel):
+  name: str # Calculation name (e.g. 'momentum', 'reversion')
   output_name: str # Custon name for the output signal
   params: Dict[str, float] = Field(default_factory=dict)
   dependencies: List[str] = Field(default_factory=list)
@@ -65,6 +65,6 @@ class PipelineConfig(BaseModel):
   dask: DaskConfig = DaskConfig()
   cache: Optional[CacheConfig] = None
   data_loaders: Dict[str, DataLoaderConfig]
-  signals_manifest: List[SignalDefinition] # List of signal defintions
-  signals: List[SignalConfig] # List of signal configuration
+  calculations_manifest: List[DataCalculationDefinition] # List of signal defintions
+  calculations: List[DataCalculationConfig] # List of signal configuration
   output_series: List[str] # List of seires to output

@@ -4,24 +4,24 @@ from typing import Union
 from dask import delayed, compute
 from dask.delayed import Delayed
 from dask.distributed import Client, LocalCluster
-from lib.signal_loader import load_and_register_signals
+from lib.calculation_loader import load_and_register_calculations
 from lib.config import PipelineConfig, DaskScheduler, CacheConfig
 from lib.cache.base_cache import BaseCache
 from lib.data_loader import create_loader
 import pandas as pd
 
-class SignalPipeline:
-  def __init__(self, config: PipelineConfig, cache: BaseCache = None):
-    """Initialize the signal pipeline with a configuration
+class CalculationPipeline:
+  def __init__(self, config: PipelineConfig):
+    """Initialize the calculation pipeline with a configuration
 
     Args:
-        config (PipelineConfig): Configuration defining which signals to load generate and their parameters
+        config (PipelineConfig): Configuration defining which calculations to load generate and their parameters
     """
     self.config = config
     self.cache = self._initialize_cache(config.cache)
     self.data_loaders = self._initialize_loaders(config.data_loaders)
-    self.sorted_signals = self._sort_signals_by_dependencies()
-    self.signal_classes = load_and_register_signals(config.signals_manifest)
+    self.sorted_calculations = self._sort_calculations_by_dependencies()
+    self.calculation_classes = load_and_register_calculations(config.calculations_manifest)
     self.dask_client = self._setup_dask() if config.dask.enabled else None
 
   def _initialize_cache(self,cache_config: Union[CacheConfig, None]) -> Union[BaseCache]:
@@ -47,10 +47,10 @@ class SignalPipeline:
       for name, loader_config in loaders_config.items()
     }
 
-  def _sort_signals_by_dependencies(self):
+  def _sort_calculations_by_dependencies(self):
     dag = TopologicalSorter()
-    for signal in self.config.signals:
-      dag.add(signal.output_name, *signal.dependencies)
+    for calculation in self.config.calculations:
+      dag.add(calculation.output_name, *calculation.dependencies)
   
     return list(dag.static_order()) 
   
@@ -95,20 +95,20 @@ class SignalPipeline:
 
     data = self.load_data()
 
-    for signal_name in self.sorted_signals:
-      # Find the corresponding signal config
-      signal_config = next(s for s in self.config.signals if s.output_name == signal_name)
-      signal_class = self.signal_classes[signal_config.name]
-      generator = signal_class(cache=self.cache)
+    for calculation_name in self.sorted_calculations:
+      # Find the corresponding calculation config
+      calculation_config = next(s for s in self.config.calculations if s.output_name == calculation_name)
+      calculation_class = self.calculation_classes[calculation_config.name]
+      calculator = calculation_class(cache=self.cache)
       
-      # Partition data as required by the signal
-      partitions = generator.partition(data, **signal_config.params)
+      # Partition data as required by the calculation
+      partitions = calculator.partition(data, **calculation_config.params)
 
       partition_results = {}
       for partition_name, partition_data in partitions.items():
         # Gather upstream dependency results for this partition
         dependencies = {}
-        for dep_name in signal_config.dependencies:
+        for dep_name in calculation_config.dependencies:
           dep_key = (dep_name, partition_name)
           dep_result = results.get(dep_key)
       
@@ -123,12 +123,12 @@ class SignalPipeline:
             partition_data = partition_data.merge(dep_data, on=["datetime", "asset"], how="left")
 
         # Create Dask task
-        task = delayed(generator.run)(
-            partition_data, name=signal_config.output_name, **signal_config.params
+        task = delayed(calculator.run)(
+            partition_data, name=calculation_config.output_name, **calculation_config.params
         )
         partition_results[partition_name] = task
 
-      # Merge partitions for the current signal
+      # Merge partitions for the current calculation
       if self.config.dask.enabled:
         computed_partitions = compute(*partition_results.values())
         merged_result = pd.concat(computed_partitions, ignore_index=True)
@@ -136,12 +136,12 @@ class SignalPipeline:
         computed_partitions = [task.compute() for task in partition_results.values()]
         merged_result = pd.concat(computed_partitions, ignore_index=True)
 
-      # Save the merged result for this signal
-      results[signal_name] = merged_result
+      # Save the merged result for this calculation
+      results[calculation_name] = merged_result
 
-      # Also, store individual partitions in case downstream signals need them
+      # Also, store individual partitions in case downstream calculations need them
       for partition_name, partition_data in zip(partition_results.keys(), computed_partitions):
-        results[(signal_name, partition_name)] = partition_data
+        results[(calculation_name, partition_name)] = partition_data
 
     # Select final output series based on configuration
     final_outputs = []

@@ -23,25 +23,33 @@
     "scheduler": "threads",
     "num_workers": 4
   },
-  "signals_manifest": [
+  "calculations_manifest": [
     {
-      "module": "lib.signals.momentum",
+      "module": "lib.calculations.signals.momentum",
       "class_name": "MomentumSignal"
     },
     {
-      "module": "lib.signals.reversion",
+      "module": "lib.calculations.signals.reversion",
       "class_name": "ReversionSignal"
     },
     {
-      "module": "lib.signals.volatility",
-      "class_name": "VolatilitySignal"
+      "module": "lib.calculations.volatility.volatility",
+      "class_name": "Volatility"
     },
     {
-      "module": "lib.signals.covariance",
-      "class_name": "CovarianceSignal"
+      "module": "lib.calculations.covariance.covariance",
+      "class_name": "Covariance"
+    },
+    {
+      "module": "lib.calculations.technical_indicators.moving_average",
+      "class_name": "MovingAverage"
+    },
+    {
+      "module": "lib.calculations.technical_indicators.rsi",
+      "class_name": "RSI"
     }
   ],
-  "signals": [
+  "calculations": [
     {
       "name": "MomentumSignal",
       "output_name": "momentum_60",
@@ -55,15 +63,27 @@
       "dependencies": ["momentum_60"]
     },
     {
-      "name": "VolatilitySignal",
+      "name": "Volatility",
       "output_name": "volatility_30",
       "params": {"window": 30},
       "dependencies": ["momentum_60"]
     },
     {
-      "name": "CovarianceSignal",
+      "name": "Covariance",
       "output_name": "cov_matrix_30",
       "params": {"window": 30},
+      "dependencies": []
+    },
+    {
+      "name": "MovingAverage",
+      "output_name": "ma_60",
+      "params": {"window": 60},
+      "dependencies": []
+    },
+    {
+      "name": "RSI",
+      "output_name": "rsi_14",
+      "params": {"window": 14},
       "dependencies": []
     }
   ],
