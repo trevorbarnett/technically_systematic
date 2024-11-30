@@ -1,17 +1,32 @@
 from enum import Enum
 from pydantic import BaseModel, Field, validator
 from typing import List, Dict, Optional
+import pandas as pd
+
+class LoggingLevel(str, Enum):
+  NOTSET = ""
+  DEBUG = "DEBUG"
+  INFO = "INFO"
+  WARNING = "WARNING"
+  ERROR = "ERROR"
+  CRITICAL = "CRITICAL"
 
 class DaskScheduler(str, Enum):
   Threads = "threads"
   Processes = "processes"
   Distributed = "distributed"
 
+class DaskSSLConfig(BaseModel):
+  ca_file: str
+  cert: str
+  key: str
 
 class DaskConfig(BaseModel):
   enabled: bool = False # Whether to use Dask
   scheduler: DaskScheduler = DaskScheduler.Threads # Dask scheduler
   num_workers: Optional[int] = None # Number of workers (only applicable for "threads" or "processes")
+  remote_scheduler: Optional[str] = None # Remote cluster address
+  remote_ssl: Optional[DaskSSLConfig] = None
 
 class DataJoinType(str, Enum):
   Left = "left"
@@ -36,6 +51,14 @@ class DataLoaderConfig(BaseModel):
   datetime_granularity: Optional[str] = None
   association: Optional[DataAssociation] = None
   params: Dict[str,str] = {}
+
+  @validator("datetime_granularity", pre=True)
+  def validate_dt_granularity(cls, granularity):
+    try:
+      pd.to_timedelta(granularity)
+    except ValueError:
+      raise ValueError(f"Invalid granularity for DataLoader: {granularity}")
+    return granularity
 
 class OutputConfig(BaseModel):
   module: str

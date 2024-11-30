@@ -4,9 +4,10 @@ import logging
 from io import StringIO
 import sys
 import pathlib
+from lib.config import LoggingLevel
 
 class OutputManifest:
-  def __init__(self, pipeline_name: str,manifest_dir: str):
+  def __init__(self, pipeline_name: str,manifest_dir: str, logging_level: LoggingLevel = LoggingLevel.INFO):
     self.pipeline_name = pipeline_name
     self.manifest_dir = manifest_dir
     self.start_time = time.time()
@@ -16,6 +17,7 @@ class OutputManifest:
     self.job_timings = {}
     self.events = []  # To track job events
     self.total_duration = None
+    self.logging_level = logging_level
 
     pathlib.Path(self.manifest_dir).mkdir(exist_ok=True,parents=True)
     self._output_filename = self._output_path()
@@ -34,7 +36,7 @@ class OutputManifest:
 
     # Set up root logger
     self.logger = logging.getLogger(self.pipeline_name)
-    self.logger.setLevel(logging.INFO)
+    self.logger.setLevel(getattr(logging,self.logging_level.value))
     self.logger.addHandler(log_handler)
     self.logger.propagate = False
 
@@ -57,17 +59,13 @@ class OutputManifest:
     def flush(self):
       pass
 
-  def add_log(self, message: str):
+  def add_log(self, message: str, level: LoggingLevel = LoggingLevel.INFO, exception : Exception = None):
     """
     Add a log message manually.
     """
-    self.logger.info(message)
-  
-  def add_exception(self, message: str, exception: Exception):
-    """
-    Log an exception
-    """
-    self.logger.exception(message,exception)
+    level_num = logging.getLevelName(str(level))
+    self.logger.log(level_num,message,exception)
+
   def add_cache_file(self, file_path: str):
     """
     Track a generated cache file.

@@ -1,17 +1,21 @@
 # main.py
 import json
-import pandas as pd
+import argparse
 from lib.config import PipelineConfig
 from lib.calculation_pipeline import CalculationPipeline
 
-# Load configuration
-with open("example_config.json") as f:
-    config_data = json.load(f)
+parser = argparse.ArgumentParser("Technically Systematic - Data Pipeline")
+parser.add_argument("config_file",help="JSON config file")
 
-config = PipelineConfig(**config_data)
+if __name__ == '__main__':
+  args = parser.parse_args()
+  # Load configuration
+  with open(args.config_file) as f:
+      config_data = json.load(f)
 
-# Run the pipeline
-pipeline = CalculationPipeline(config)
-results = pipeline.run()
+  config = PipelineConfig(**config_data)
 
-print(results)
+  # Run the pipeline
+  pipeline = CalculationPipeline(config)
+  results = pipeline.run()
+  print(pipeline.manifest._output_filename)

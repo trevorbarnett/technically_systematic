@@ -6,7 +6,7 @@ from dask import delayed, compute
 from dask.delayed import Delayed
 from dask.distributed import Client, LocalCluster
 from lib.calculation_loader import load_and_register_calculations
-from lib.config import PipelineConfig, DaskScheduler, CacheConfig, OutputConfig
+from lib.config import PipelineConfig, DaskScheduler, CacheConfig, OutputConfig, LoggingLevel
 from lib.cache.base_cache import BaseCache
 from lib.data_loader import create_loader
 from lib.output.base_output import Output
@@ -78,9 +78,19 @@ class CalculationPipeline:
       # Local multiprocessing scheduler
       return Client(processes=True, n_workers = self.config.dask.num_workers or 4 )
     elif self.config.dask.scheduler == DaskScheduler.Distributed:
-      # Distributed cluster setup
-      cluster = LocalCluster(n_workers=self.config.dask.num_workers or 4) # TODO: Enable more than LocalCluster
-      return Client(cluster)
+      if self.config.dask.remote_scheduler:
+        scheduler_address = self.config.dask.remote_scheduler
+        tls_config = {}
+        if self.config.dask.remote_ssl:
+          tls_config['ssl_ca_file'] = self.config.dask.remote_ssl.ca_file
+          tls_config['ssl_cert'] = self.config.dask.remote_ssl.cert
+          tls_config['ssl_key'] = self.config.dask.remote_ssl.key
+        self.manifest.add_log(f"Connecting to remote Dask scheduler at {scheduler_address}")
+        return Client(scheduler_address, **tls_config)
+      else:
+        # Distributed cluster setup
+        cluster = LocalCluster(n_workers=self.config.dask.num_workers or 4) # TODO: Enable more than LocalCluster
+        return Client(cluster)
     else:
       raise ValueError(f"Unssuprted Dask scheduler: {self.config.dask.scheduler}")
     
@@ -186,7 +196,7 @@ class CalculationPipeline:
 
           self.manifest.end_job(calculation_name,success=True)
         except Exception as e:
-          self.manifest.add_exception(f"Error in job '{calculation_name}': {e}",e) 
+          self.manifest.add_log(f"Error in job '{calculation_name}': {e}",level = LoggingLevel.ERROR, exception = e) 
           self.manifest.end_job(calculation_name,success=False)
           raise
         finally:
@@ -212,7 +222,7 @@ class CalculationPipeline:
 
       self.manifest.finalize("success")
     except Exception as e:
-      self.manifest.add_exception(f"Pipeline failed: {e}", e)
+      self.manifest.add_log(f"Pipeline failed: {e}", level = LoggingLevel.ERROR, exception = e)
       self.manifest.finalize("failure")
       raise
     finally:
