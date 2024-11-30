@@ -2,7 +2,7 @@
 import json
 import argparse
 from lib.config import PipelineConfig
-from lib.calculation_pipeline import CalculationPipeline
+from lib.pipeline.calculation_pipeline import CalculationPipeline
 
 parser = argparse.ArgumentParser("Technically Systematic - Data Pipeline")
 parser.add_argument("config_file",help="JSON config file")

@@ -1,18 +1,19 @@
 from graphlib import TopologicalSorter
 import importlib
-import time
 from typing import Union, List, Dict, Tuple
-from dask import delayed, compute
-from dask.delayed import Delayed
 from dask.distributed import Client, LocalCluster
 from lib.calculations.base_calculation import DataCalculation
-from lib.calculation_loader import load_and_register_calculations
+from lib.pipeline.calculation_loader import load_and_register_calculations
 from lib.config import PipelineConfig, DaskScheduler, CacheConfig, OutputConfig, LoggingLevel, DataCalculationConfig
 from lib.cache.base_cache import BaseCache
-from lib.data_loader import create_loader
+from lib.pipeline.data_loader import create_loader
 from lib.output.base_output import Output
 from lib.manifest.output_manifest import OutputManifest
 from lib.manifest.dask_telemetry import DaskTelemetry
+
+from lib.pipeline.executor import execute_partitions
+from lib.pipeline.partitioner import partition_data
+
 import pandas as pd
 
 class CalculationPipeline:
@@ -152,11 +153,11 @@ class CalculationPipeline:
     calculator = self.get_calculator(calculation_config)
 
     # Partition data as required by the calculation
-    partitions = calculator.partition(data, **calculation_config.params)
+    partitions = partition_data(calculator, data, calculation_config)
     self.manifest.trigger_event(calculation_name,"partition_complete")
 
     try:
-      partition_results = self.execute_partitions(calculator, partitions, calculation_config, results)
+      partition_results = execute_partitions(calculator, partitions, calculation_config, results)
       merged_results = self.merge_results(partition_results)
       results[calculation_name] = merged_results
       self.manifest.end_job(calculation_name,success=True)
@@ -188,75 +189,6 @@ class CalculationPipeline:
     """
     calculation_class = self.calculation_classes[calculation_config.name]
     return calculation_class(cache=self.cache)
-  
-  def partition_data(self, calculator: DataCalculation, data: pd.DataFrame, calculation_config: DataCalculationConfig) -> Dict[str,pd.DataFrame]:
-    """Partition the data based on the caculation's requirements
-
-    Args:
-        calculator (DataCalculation): The calculator to use
-        data (pd.DataFrame): The data to partition
-        calculation_config (DataCalculationConfig): The calculator's config
-
-    Raises:
-        ValueError: If the calculator can't partition the data
-
-    Returns:
-        Dict[str,pd.DataFrame]: Partitioned data
-    """
-    return calculator.partition(data,**calculation_config.params)
-
-  def execute_partitions(self, calculator: DataCalculation, partitions: Dict[str, pd.DataFrame], calculator_config: DataCalculationConfig, results: Dict[str,pd.DataFrame]) -> Dict[str, Delayed]:
-    partition_results = {}
-    for partition_name, partition_data in partitions.items():
-      # Gather upstream dependency results for this partition
-      dependencies = self.resolve_dependencies(partition_name, calculator_config, results)
-      partition_data = self.merge_dependencies(partition_data, dependencies)
-
-      # Create Dask task
-      task = delayed(calculator.run)(
-          partition_data, name=calculator_config.output_name, **calculator_config.params
-      )
-      partition_results[partition_name] = task  
-    return {k: v.compute() for k, v in partition_results.items()}
-
-  def resolve_dependencies(self, partition_name: str, calculation_config: DataCalculationConfig, results: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-    """Gather the upstream dependency results for a given partition
-
-    Args:
-        partition_name (str): Name of the partition
-        calculation_config (DataCalculationConfig): Calculator config
-        results (Dict[str, pd.DataFrame]): Results
-
-    Returns:
-        Dict[str, Delayed]: Dependency tasks
-    """
-    dependencies = {}
-    for dep_name in calculation_config.dependencies:
-      dep_key = (dep_name, partition_name)
-      dep_result = results.get(dep_key)
-      if isinstance(dep_result, Delayed):  # Check for dask.delayed.Delayed objects
-        dependencies[dep_name] = dep_result.compute()
-      else:
-        dependencies[dep_name] = dep_result
-    return dependencies
-  
-  def merge_dependencies(self, partition_data: pd.DataFrame, dependencies: Dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Merge dependencies into partition data
-
-    Args:
-        partition_data (pd.DataFrame): Partition data
-        dependencies (Dict[str, pd.DataFrame]): Dependencies
-
-    Returns:
-        pd.DataFrame: Merged data
-    """
-    # Merge dependencies into the partition data
-    for _, dep_data in dependencies.items():
-      if dep_data is not None:
-        if isinstance(dep_data,tuple):
-          dep_data,_ = dep_data
-        partition_data = partition_data.merge(dep_data, on=["datetime", "asset"], how="left")
-    return partition_data
   
   def merge_results(self, partition_results: Dict[str,Union[Tuple[pd.DataFrame,str],pd.DataFrame]]) -> pd.DataFrame:
     """Merge partition results into a single DataFrame
@@ -320,7 +252,7 @@ class CalculationPipeline:
         "tasks": task_data.to_dict(orient="records")
       }
 
-      self.manifest.add_log(f"Dask telemtry summary: {telemtry_summary}")
+      self.manifest.add_log(f"Dask telemtry summary: {telemetry_summary}")
       self.manifest.dask_telemtry = telemetry_summary
     else:
       self.manifest.add_log("No Dask telemtry data available")
