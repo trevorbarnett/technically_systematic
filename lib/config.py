@@ -91,6 +91,7 @@ class DataCalculationConfig(BaseModel):
 class PipelineConfig(BaseModel):
   pipeline_name: str
   manifest_dir: str
+  default_log_level: LoggingLevel = LoggingLevel.INFO
   dask: DaskConfig = DaskConfig()
   cache: Optional[CacheConfig] = None
   data_loaders: Dict[str, DataLoaderConfig]

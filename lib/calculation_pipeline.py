@@ -1,17 +1,18 @@
 from graphlib import TopologicalSorter
 import importlib
 import time
-from typing import Union, List
+from typing import Union, List, Dict, Tuple
 from dask import delayed, compute
 from dask.delayed import Delayed
 from dask.distributed import Client, LocalCluster
+from lib.calculations.base_calculation import DataCalculation
 from lib.calculation_loader import load_and_register_calculations
-from lib.config import PipelineConfig, DaskScheduler, CacheConfig, OutputConfig, LoggingLevel
+from lib.config import PipelineConfig, DaskScheduler, CacheConfig, OutputConfig, LoggingLevel, DataCalculationConfig
 from lib.cache.base_cache import BaseCache
 from lib.data_loader import create_loader
 from lib.output.base_output import Output
 from lib.manifest.output_manifest import OutputManifest
-from lib.manifest.dask_telemtry import DaskTelemetry
+from lib.manifest.dask_telemetry import DaskTelemetry
 import pandas as pd
 
 class CalculationPipeline:
@@ -29,7 +30,7 @@ class CalculationPipeline:
     self.dask_client = self._setup_dask() if config.dask.enabled else None
     self.dask_telemetry = DaskTelemetry(self.dask_client) if self.dask_client else None
     self.outputs = self._initialize_outputs(config.outputs)
-    self.manifest = OutputManifest(config.pipeline_name, config.manifest_dir)
+    self.manifest = OutputManifest(config.pipeline_name, config.manifest_dir, config.default_log_level)
 
   def _initialize_cache(self,cache_config: Union[CacheConfig, None]) -> Union[BaseCache]:
     if cache_config == None:
@@ -116,114 +117,210 @@ class CalculationPipeline:
     return primary_data
   def run(self) -> pd.DataFrame:
     try:
-      results = {}
       # Start Dask task telemetry
       if self.dask_telemetry:
         self.dask_telemetry.start_task_stream()
       data = self.load_data()
 
+      results = {}
       for calculation_name in self.sorted_calculations:
-        self.manifest.start_job(calculation_name)
-
-        # Find the corresponding calculation config
-        calculation_config = next(s for s in self.config.calculations if s.output_name == calculation_name)
-        calculation_class = self.calculation_classes[calculation_config.name]
-        calculator = calculation_class(cache=self.cache)
-
-        # Partition data as required by the calculation
-        partitions = calculator.partition(data, **calculation_config.params)
-        self.manifest.trigger_event(calculation_name,"partition_complete")
-        try:
-          partition_results = {}
-          start_time = time.time()
-          for partition_name, partition_data in partitions.items():
-            # Gather upstream dependency results for this partition
-            dependencies = {}
-            for dep_name in calculation_config.dependencies:
-              dep_key = (dep_name, partition_name)
-              dep_result = results.get(dep_key)
-          
-              if isinstance(dep_result, Delayed):  # Check for dask.delayed.Delayed objects
-                dependencies[dep_name] = dep_result.compute()
-              else:
-                dependencies[dep_name] = dep_result
-
-            # Merge dependencies into the partition data
-            for dep_name, dep_data in dependencies.items():
-              if dep_data is not None:
-                if isinstance(dep_data,tuple):
-                  result,cache_file = dep_data
-                else:
-                  result = dep_data
-                partition_data = partition_data.merge(result, on=["datetime", "asset"], how="left")
-
-            # Create Dask task
-            task = delayed(calculator.run)(
-                partition_data, name=calculation_config.output_name, **calculation_config.params
-            )
-            partition_results[partition_name] = task
-
-          # Merge partitions for the current calculation
-          if self.config.dask.enabled:
-            computed_partitions = compute(*partition_results.values())
-          else:
-            computed_partitions = [task.compute() for task in partition_results.values()]
-
-
-          merged_results = []
-          for task_result in computed_partitions:
-            if isinstance(task_result,tuple):
-              result, cache_path = task_result
-              merged_results.append(result)
-              if cache_path:
-                self.manifest.add_cache_file(cache_path)
-            else:
-              merged_results.append(task_result)
-          merged_results = pd.concat(merged_results, ignore_index=True)
-          duration = time.time() - start_time
-
-          # Log job timing
-          self.manifest.job_timings[calculation_name] = {
-            "start_time": start_time,
-            "duration": duration
-          }
-          # Save the merged result for this calculation
-          results[calculation_name] = merged_results
-
-          # Also, store individual partitions in case downstream calculations need them
-          for partition_name, partition_data in zip(partition_results.keys(), computed_partitions):
-            results[(calculation_name, partition_name)] = partition_data
-
-          self.manifest.end_job(calculation_name,success=True)
-        except Exception as e:
-          self.manifest.add_log(f"Error in job '{calculation_name}': {e}",level = LoggingLevel.ERROR, exception = e) 
-          self.manifest.end_job(calculation_name,success=False)
-          raise
-        finally:
-          self.manifest.save()
-      # Select final output series based on configuration
-      for output in self.outputs:
-        final_outputs = []
-        for output_name in output.config.data_series:
-          output_data = results.get(output_name)
-          if output_data is not None:
-            final_outputs.append(output_data)
-          else:
-            raise ValueError(f"Output series '{output_name}' not found in results.")
-
-        # Combine the selected outputs into a single DataFrame
-        final_output = pd.concat(final_outputs, axis=0, ignore_index=True)
-        output.write(final_output)
-      # Stop Dask task telemetry
+        self.process_calculation(calculation_name, data, results)
+      final_output = self.generate_output(results)
+      
       if self.dask_telemetry:
-        self.dask_telemetry.stop_task_stream()
-        task_data = self.dask_telemetry.get_task_dataframe()
-        self.manifest.add_log(f"Dask Task Telemetry: {task_data}")
-
-      self.manifest.finalize("success")
+        self.log_dask_telemetry()
+      
+      self.manifest.finalize('success')
+      return final_output
     except Exception as e:
       self.manifest.add_log(f"Pipeline failed: {e}", level = LoggingLevel.ERROR, exception = e)
       self.manifest.finalize("failure")
       raise
     finally:
+      self.manifest.save() 
+  def process_calculation(self, calculation_name: str, data: pd.DataFrame, results: Dict[str,pd.DataFrame]):
+    """Process a single calculation: partion, resolves dependencies, and execute.
+
+    Args:
+        calculation_name (str): Name of the calculation
+        data (pd.DataFrame): Data to operate upon
+        results (dict): Results
+    """
+    
+    self.manifest.start_job(calculation_name)
+    calculation_config = self.get_calculation_config(calculation_name)
+    calculator = self.get_calculator(calculation_config)
+
+    # Partition data as required by the calculation
+    partitions = calculator.partition(data, **calculation_config.params)
+    self.manifest.trigger_event(calculation_name,"partition_complete")
+
+    try:
+      partition_results = self.execute_partitions(calculator, partitions, calculation_config, results)
+      merged_results = self.merge_results(partition_results)
+      results[calculation_name] = merged_results
+      self.manifest.end_job(calculation_name,success=True)
+    except Exception as e:
+      self.manifest.add_log(f"Error in job '{calculation_name}': {e}",level = LoggingLevel.ERROR, exception = e) 
+      self.manifest.end_job(calculation_name,success=False)
+      raise
+    finally:
       self.manifest.save()
+  def get_calculation_config(self, calculation_name: str) -> DataCalculationConfig:
+    """Retrieve the configuration for a specific calculation
+
+    Args:
+        calculation_name (str): The calculation name
+    """
+    return next(s for s in self.config.calculations if s.output_name == calculation_name)
+  
+  def get_calculator(self, calculation_config: DataCalculationConfig) -> DataCalculation:
+    """Instantiate the calculator class for a given calculation
+
+    Args:
+        calculation_config (DataCalculationConfig): Calculator config
+
+    Raises:
+        ValueError: If the calculator cannot be found based on the config
+
+    Returns:
+        DataCalculation: The instantiated calculator
+    """
+    calculation_class = self.calculation_classes[calculation_config.name]
+    return calculation_class(cache=self.cache)
+  
+  def partition_data(self, calculator: DataCalculation, data: pd.DataFrame, calculation_config: DataCalculationConfig) -> Dict[str,pd.DataFrame]:
+    """Partition the data based on the caculation's requirements
+
+    Args:
+        calculator (DataCalculation): The calculator to use
+        data (pd.DataFrame): The data to partition
+        calculation_config (DataCalculationConfig): The calculator's config
+
+    Raises:
+        ValueError: If the calculator can't partition the data
+
+    Returns:
+        Dict[str,pd.DataFrame]: Partitioned data
+    """
+    return calculator.partition(data,**calculation_config.params)
+
+  def execute_partitions(self, calculator: DataCalculation, partitions: Dict[str, pd.DataFrame], calculator_config: DataCalculationConfig, results: Dict[str,pd.DataFrame]) -> Dict[str, Delayed]:
+    partition_results = {}
+    for partition_name, partition_data in partitions.items():
+      # Gather upstream dependency results for this partition
+      dependencies = self.resolve_dependencies(partition_name, calculator_config, results)
+      partition_data = self.merge_dependencies(partition_data, dependencies)
+
+      # Create Dask task
+      task = delayed(calculator.run)(
+          partition_data, name=calculator_config.output_name, **calculator_config.params
+      )
+      partition_results[partition_name] = task  
+    return {k: v.compute() for k, v in partition_results.items()}
+
+  def resolve_dependencies(self, partition_name: str, calculation_config: DataCalculationConfig, results: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    """Gather the upstream dependency results for a given partition
+
+    Args:
+        partition_name (str): Name of the partition
+        calculation_config (DataCalculationConfig): Calculator config
+        results (Dict[str, pd.DataFrame]): Results
+
+    Returns:
+        Dict[str, Delayed]: Dependency tasks
+    """
+    dependencies = {}
+    for dep_name in calculation_config.dependencies:
+      dep_key = (dep_name, partition_name)
+      dep_result = results.get(dep_key)
+      if isinstance(dep_result, Delayed):  # Check for dask.delayed.Delayed objects
+        dependencies[dep_name] = dep_result.compute()
+      else:
+        dependencies[dep_name] = dep_result
+    return dependencies
+  
+  def merge_dependencies(self, partition_data: pd.DataFrame, dependencies: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Merge dependencies into partition data
+
+    Args:
+        partition_data (pd.DataFrame): Partition data
+        dependencies (Dict[str, pd.DataFrame]): Dependencies
+
+    Returns:
+        pd.DataFrame: Merged data
+    """
+    # Merge dependencies into the partition data
+    for _, dep_data in dependencies.items():
+      if dep_data is not None:
+        if isinstance(dep_data,tuple):
+          dep_data,_ = dep_data
+        partition_data = partition_data.merge(dep_data, on=["datetime", "asset"], how="left")
+    return partition_data
+  
+  def merge_results(self, partition_results: Dict[str,Union[Tuple[pd.DataFrame,str],pd.DataFrame]]) -> pd.DataFrame:
+    """Merge partition results into a single DataFrame
+
+    Args:
+        partition_results (Dict[str, pd.DataFrame]): Partition calculation results
+
+    Returns:
+        pd.DataFrame: Merged results
+    """
+    merged_results = []
+    for task_result in partition_results.values():
+      if isinstance(task_result,tuple):
+        result, cache_path = task_result
+        merged_results.append(result)
+        if cache_path:
+          self.manifest.add_cache_file(cache_path)
+      else:
+        merged_results.append(task_result)
+    return pd.concat(merged_results, ignore_index=True)
+  
+  def generate_output(self, results: Dict[str, pd.DataFrame]):
+    """Generate final outputs and write them to configured destinations.
+
+    Args:
+        results (Dict[str, pd.DataFrame]): Results
+
+    Raises:
+        ValueError: Raised if the output series/columns can't be found in the results
+    """
+    for output in self.outputs:
+      final_outputs = []
+      for output_name in output.config.data_series:
+        output_data = results.get(output_name)
+        if output_data is not None:
+          final_outputs.append(output_data)
+        else:
+          raise ValueError(f"Output series '{output_name}' not found in results.")
+
+        # Combine the selected outputs into a single DataFrame
+        final_output = pd.concat(final_outputs, axis=0, ignore_index=True)
+        output.write(final_output)
+
+  def log_dask_telemetry(self):
+    """
+    Log telemetry data from the Dask execution environment.
+    """
+    if not self.dask_telemetry:
+      return
+
+    # Stop telemetry collection
+    self.dask_telemetry.stop_task_stream()
+
+    # Retrieve telemetry data
+    task_data = self.dask_telemetry.get_task_dataframe()
+
+    if not task_data.empty:
+      telemetry_summary = {
+        "total_tasks": len(task_data),
+        "total_runtime": task_data["duration"].sum() if "duration" in task_data.columns else None,
+        "tasks": task_data.to_dict(orient="records")
+      }
+
+      self.manifest.add_log(f"Dask telemtry summary: {telemtry_summary}")
+      self.manifest.dask_telemtry = telemetry_summary
+    else:
+      self.manifest.add_log("No Dask telemtry data available")

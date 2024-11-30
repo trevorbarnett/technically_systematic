@@ -18,6 +18,7 @@ class OutputManifest:
     self.events = []  # To track job events
     self.total_duration = None
     self.logging_level = logging_level
+    self.dask_telemtry = None
 
     pathlib.Path(self.manifest_dir).mkdir(exist_ok=True,parents=True)
     self._output_filename = self._output_path()
@@ -63,8 +64,8 @@ class OutputManifest:
     """
     Add a log message manually.
     """
-    level_num = logging.getLevelName(str(level))
-    self.logger.log(level_num,message,exception)
+    level = getattr(logging,level.value)
+    self.logger.log(level,message,exception)
 
   def add_cache_file(self, file_path: str):
     """
@@ -81,6 +82,10 @@ class OutputManifest:
       "job_name": job_name,
       "event": "start_job"
     })
+
+    self.job_timings[job_name] = {
+      "start_time": time.time()
+    }
 
   def trigger_event(self, job_name: str, event_name: str):
     """

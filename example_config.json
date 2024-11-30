@@ -1,6 +1,7 @@
 {
   "pipeline_name": "example_pipeline",
   "manifest_dir": "test/manifests",
+  "logging_level": "DEBUG",
   "cache": {
     "module": "lib.cache.local",
     "classname": "LocalCache",
@@ -16,7 +17,7 @@
       "required_columns": ["datetime","asset","open","high","low","close","volume"],
       "datetime_granularity": "1 minute",
       "params": {
-        "file_path": "test/data/prices.parq"
+        "file_path": "test/data/prices.parquet"
       }
     }
   },
@@ -95,7 +96,7 @@
       "class_name": "ParquetOutput",
       "data_series": ["rsi_14","ma_60","cov_matrix_30","volatility_30","momentum_60","reversion_5_60"],
       "params": {
-        "file_path": "test/output.parq"
+        "file_path": "test/output.parquet"
       }
     }
   ]
