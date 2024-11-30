@@ -1,5 +1,7 @@
 import importlib
 from typing import List
+
+from lib.calculations.base_calculation import DataCalculation
 from lib.config import DataCalculationConfig
 
 def load_and_register_calculations(manifest: List[DataCalculationConfig]):

@@ -2,19 +2,21 @@ from graphlib import TopologicalSorter
 import importlib
 from typing import Union, List, Dict, Tuple
 from dask.distributed import Client, LocalCluster
-from lib.calculations.base_calculation import DataCalculation
-from lib.pipeline.calculation_loader import load_and_register_calculations
+import pandas as pd
+
 from lib.config import PipelineConfig, DaskScheduler, CacheConfig, OutputConfig, LoggingLevel, DataCalculationConfig
+
+from lib.calculations.base_calculation import DataCalculation
 from lib.cache.base_cache import BaseCache
-from lib.pipeline.data_loader import create_loader
 from lib.output.base_output import Output
 from lib.manifest.output_manifest import OutputManifest
 from lib.manifest.dask_telemetry import DaskTelemetry
 
+from lib.pipeline.calculation_loader import load_and_register_calculations
 from lib.pipeline.executor import execute_partitions
 from lib.pipeline.partitioner import partition_data
+from lib.pipeline.data_loader import load_data, create_loader
 
-import pandas as pd
 
 class CalculationPipeline:
   def __init__(self, config: PipelineConfig):
@@ -96,40 +98,20 @@ class CalculationPipeline:
     else:
       raise ValueError(f"Unssuprted Dask scheduler: {self.config.dask.scheduler}")
     
-
-  def load_data(self) -> pd.DataFrame:
-    """
-    Load and integrate datasets with associations.
-
-    Returns:
-        pd.DataFrame: Integrated DataFrame with all datasets merged.
-    """
-    # Load primary dataset
-    primary_data = self.data_loaders["price_series"].load_data()
-
-    # Process and associate secondary datasets
-    for name, loader in self.data_loaders.items():
-      if name == "price_series":
-          continue  # Skip the primary dataset
-
-      secondary_data = loader.load_data()
-      primary_data = loader.associate(primary_data, secondary_data)
-
-    return primary_data
   def run(self) -> pd.DataFrame:
     try:
       # Start Dask task telemetry
       if self.dask_telemetry:
         self.dask_telemetry.start_task_stream()
-      data = self.load_data()
+      data = load_data(self.data_loaders)
 
       results = {}
       for calculation_name in self.sorted_calculations:
-        self.process_calculation(calculation_name, data, results)
-      final_output = self.generate_output(results)
+        self._process_calculation(calculation_name, data, results)
+      final_output = self._generate_output(results)
       
       if self.dask_telemetry:
-        self.log_dask_telemetry()
+        self._log_dask_telemetry()
       
       self.manifest.finalize('success')
       return final_output
@@ -139,7 +121,32 @@ class CalculationPipeline:
       raise
     finally:
       self.manifest.save() 
-  def process_calculation(self, calculation_name: str, data: pd.DataFrame, results: Dict[str,pd.DataFrame]):
+
+  def get_calculation_config(self, calculation_name: str) -> DataCalculationConfig:
+    """Retrieve the configuration for a specific calculation
+
+    Args:
+        calculation_name (str): The calculation name
+    """
+    return next(s for s in self.config.calculations if s.output_name == calculation_name)
+
+  def get_calculator(self, calculation_config: DataCalculationConfig) -> DataCalculation:
+    """Instantiate the calculator class for a given calculation
+
+    Args:
+        calculation_config (DataCalculationConfig): Calculator config
+
+    Raises:
+        ValueError: If the calculator cannot be found based on the config
+
+    Returns:
+        DataCalculation: The instantiated calculator
+    """
+    calculation_class = self.calculation_classes[calculation_config.name]
+    return calculation_class(cache=self.cache)
+
+
+  def _process_calculation(self, calculation_name: str, data: pd.DataFrame, results: Dict[str,pd.DataFrame]):
     """Process a single calculation: partion, resolves dependencies, and execute.
 
     Args:
@@ -158,7 +165,7 @@ class CalculationPipeline:
 
     try:
       partition_results = execute_partitions(calculator, partitions, calculation_config, results)
-      merged_results = self.merge_results(partition_results)
+      merged_results = self._merge_results(partition_results)
       results[calculation_name] = merged_results
       self.manifest.end_job(calculation_name,success=True)
     except Exception as e:
@@ -167,30 +174,8 @@ class CalculationPipeline:
       raise
     finally:
       self.manifest.save()
-  def get_calculation_config(self, calculation_name: str) -> DataCalculationConfig:
-    """Retrieve the configuration for a specific calculation
 
-    Args:
-        calculation_name (str): The calculation name
-    """
-    return next(s for s in self.config.calculations if s.output_name == calculation_name)
-  
-  def get_calculator(self, calculation_config: DataCalculationConfig) -> DataCalculation:
-    """Instantiate the calculator class for a given calculation
-
-    Args:
-        calculation_config (DataCalculationConfig): Calculator config
-
-    Raises:
-        ValueError: If the calculator cannot be found based on the config
-
-    Returns:
-        DataCalculation: The instantiated calculator
-    """
-    calculation_class = self.calculation_classes[calculation_config.name]
-    return calculation_class(cache=self.cache)
-  
-  def merge_results(self, partition_results: Dict[str,Union[Tuple[pd.DataFrame,str],pd.DataFrame]]) -> pd.DataFrame:
+  def _merge_results(self, partition_results: Dict[str,Union[Tuple[pd.DataFrame,str],pd.DataFrame]]) -> pd.DataFrame:
     """Merge partition results into a single DataFrame
 
     Args:
@@ -210,7 +195,7 @@ class CalculationPipeline:
         merged_results.append(task_result)
     return pd.concat(merged_results, ignore_index=True)
   
-  def generate_output(self, results: Dict[str, pd.DataFrame]):
+  def _generate_output(self, results: Dict[str, pd.DataFrame]):
     """Generate final outputs and write them to configured destinations.
 
     Args:
@@ -232,7 +217,7 @@ class CalculationPipeline:
         final_output = pd.concat(final_outputs, axis=0, ignore_index=True)
         output.write(final_output)
 
-  def log_dask_telemetry(self):
+  def _log_dask_telemetry(self):
     """
     Log telemetry data from the Dask execution environment.
     """
