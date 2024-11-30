@@ -45,7 +45,7 @@ class BaseDataLoader(ABC):
 
     # Align data if necessary
     if fill_method:
-      associated_data = associated_data.fillna(method=str(fill_method))
+      associated_data = associated_data.fillna(method=fill_method.value)
 
     return associated_data
   def validate_data(self, data: pd.DataFrame):
