@@ -1,13 +1,12 @@
 import importlib
 from typing import List
 
-from lib.calculations.base_calculation import DataCalculation
-from lib.config import DataCalculationConfig
+from lib.config import DataCalculationDefinition
 
-def load_and_register_calculations(manifest: List[DataCalculationConfig]):
-  signal_classes = {}
-  for signal_def in manifest:
-    module = importlib.import_module(signal_def.module)
-    signal_class = getattr(module, signal_def.class_name)
-    signal_classes[signal_def.class_name] = signal_class
-  return signal_classes
+def load_and_register_calculations(manifest: List[DataCalculationDefinition]):
+  calculation_classes = {}
+  for calc_def in manifest:
+    module = importlib.import_module(calc_def.module)
+    calculation_class = getattr(module, calc_def.class_name)
+    calculation_classes[calc_def.class_name] = calculation_class
+  return calculation_classes
