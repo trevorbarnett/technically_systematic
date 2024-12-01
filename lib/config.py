@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Optional
 import pandas as pd
 
@@ -32,7 +32,7 @@ class DataJoinType(str, Enum):
   Left = "left"
   Right = "right"
   Inner = "inner"
-  Outter = "outter"
+  Outer = "outer"
 
 class DataFillType(str, Enum):
   ForwardFill = "ffill"
@@ -52,7 +52,7 @@ class DataLoaderConfig(BaseModel):
   association: Optional[DataAssociation] = None
   params: Dict[str,str] = {}
 
-  @validator("datetime_granularity", pre=True)
+  @field_validator("datetime_granularity")
   def validate_dt_granularity(cls, granularity):
     try:
       pd.to_timedelta(granularity)
@@ -81,7 +81,7 @@ class DataCalculationConfig(BaseModel):
   params: Dict[str, float] = Field(default_factory=dict)
   dependencies: List[str] = Field(default_factory=list)
 
-  @validator("dependencies", pre=True)
+  @field_validator("dependencies")
   def validate_dependencies(cls, deps):
     if not isinstance(deps, list):
       raise ValueError("Dependencies must be a list of signal output names.")

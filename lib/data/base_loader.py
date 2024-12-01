@@ -41,11 +41,17 @@ class BaseDataLoader(ABC):
       fill_method = DataFillType.ForwardFill  # Fill method for alignment
 
     # Perform the join
-    associated_data = pd.merge(primary, secondary, on=join_keys, how=str(how))
+    associated_data = pd.merge(primary, secondary, on=join_keys, how=how.value, suffixes=("","_secondary"))
 
     # Align data if necessary
     if fill_method:
-      associated_data = associated_data.fillna(method=fill_method.value)
+      if fill_method == DataFillType.BackwardFill:
+        associated_data = associated_data.bfill()
+      elif fill_method == DataFillType.ForwardFill:
+        associated_data = associated_data.ffill()
+      else:
+        raise ValueError(f"Invalid fill type: {fill_method}")
+
 
     return associated_data
   def validate_data(self, data: pd.DataFrame):
