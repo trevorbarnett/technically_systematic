@@ -214,8 +214,8 @@ class CalculationPipeline:
           raise ValueError(f"Output series '{output_name}' not found in results.")
 
         # Combine the selected outputs into a single DataFrame
-        final_output = pd.concat(final_outputs, axis=0, ignore_index=True)
-        output.write(final_output)
+      final_output = pd.concat(final_outputs, axis=0, ignore_index=True)
+      output.write(final_output)
 
   def _log_dask_telemetry(self):
     """
